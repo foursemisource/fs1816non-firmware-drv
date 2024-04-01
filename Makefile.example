@@ -1,0 +1,3 @@
+# fs1816 i2c driver
+snd-soc-fs1816-objs := fs1816.o
+obj-$(CONFIG_SND_SOC_FS1816) += snd-soc-fs1816.o
