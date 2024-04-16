@@ -53,7 +53,7 @@ static struct fs1816_pll fs1816_plls[] = {
 };
 
 static const struct reg_sequence fs1816_init_list[] = {
-	{ FS1816_04H_I2SCTRL,		0x880B },
+	{ FS1816_04H_I2SCTRL,		0x800B },
 	{ FS1816_06H_AUDIOCTRL,		0xF7C0 },
 	{ FS1816_27H_ANACFG,		0x0900 },
 	{ FS1816_56H_INTCTRL,		0x0801 },
@@ -92,7 +92,8 @@ int fs1816_i2c_reset(struct fs1816_dev *fs1816)
 				&msgs[0], ARRAY_SIZE(msgs));
 		mutex_unlock(&fs1816->io_lock);
 		if (ret > 0)
-			dev_info(fs1816->dev, "reset: addr = 0x%02X, ret = %d\n", addr, ret);
+			dev_info(fs1816->dev, "reset addr:0x%02X ret:%d\n",
+					addr, ret);
 	}
 	FS1816_DELAY_MS(10);
 
@@ -380,6 +381,12 @@ static int fs1816_chip_init(struct fs1816_dev *fs1816)
 		return ret;
 	}
 
+	/* Disable INT when the intz gpio is unused */
+	if (IS_ERR_OR_NULL(fs1816->pdata.gpio_intz)) {
+		ret |= fs1816_reg_write(fs1816, FS1816_56H_INTCTRL, 0x0001);
+		ret |= fs1816_reg_write(fs1816, FS1816_57H_INTMASK, 0x7FFF);
+	}
+
 	ret = fs1816_reg_update_bits(fs1816, FS1816_04H_I2SCTRL,
 			FS1816_04H_CHS12_MASK,
 			fs1816->rx_channel << FS1816_04H_CHS12_SHIFT);
@@ -524,7 +531,7 @@ static int fs1816_recover_device(struct fs1816_dev *fs1816)
 	if (fs1816->dac_event_up)
 		ret |= fs1816_startup(fs1816);
 
-	if (fs1816->stream_on)
+	if (fs1816->dac_event_up && fs1816->stream_on)
 		ret |= fs1816_play(fs1816);
 
 	return ret;
@@ -1802,14 +1809,20 @@ static const struct snd_kcontrol_new fs1816_dac_port[] = {
 	SOC_DAPM_SINGLE("Switch", SND_SOC_NOPM, 0, 1, 0)
 };
 
+static const struct snd_kcontrol_new fs1816_fb_port[] = {
+	SOC_DAPM_SINGLE("Switch", SND_SOC_NOPM, 0, 1, 0)
+};
+
 static struct snd_soc_dapm_widget fs1816_codec_widgets[] = {
 	SND_SOC_DAPM_AIF_IN("AIF IN", "Playback", 0, SND_SOC_NOPM, 0, 0),
-	SND_SOC_DAPM_AIF_OUT_E("AIF OUT", "Capture", 0, SND_SOC_NOPM, 0, 0,
-		fs1816_codec_capture_event,
-		SND_SOC_DAPM_POST_PMU | SND_SOC_DAPM_PRE_PMD),
+	SND_SOC_DAPM_AIF_OUT("AIF OUT", "Capture", 0, SND_SOC_NOPM, 0, 0),
 	SND_SOC_DAPM_MIXER_E("FS DAC_Port", SND_SOC_NOPM, 0, 0,
 		fs1816_dac_port, ARRAY_SIZE(fs1816_dac_port),
 		fs1816_codec_playback_event,
+		SND_SOC_DAPM_POST_PMU | SND_SOC_DAPM_PRE_PMD),
+	SND_SOC_DAPM_MIXER_E("FS FB_Port", SND_SOC_NOPM, 0, 0,
+		fs1816_fb_port, ARRAY_SIZE(fs1816_fb_port),
+		fs1816_codec_capture_event,
 		SND_SOC_DAPM_POST_PMU | SND_SOC_DAPM_PRE_PMD),
 	SND_SOC_DAPM_OUTPUT("OUT"),
 	SND_SOC_DAPM_INPUT("SDO"),
@@ -1818,7 +1831,8 @@ static struct snd_soc_dapm_widget fs1816_codec_widgets[] = {
 static const struct snd_soc_dapm_route fs1816_codec_routes[] = {
 	{ "FS DAC_Port", "Switch", "AIF IN" },
 	{ "OUT", NULL, "FS DAC_Port" },
-	{ "AIF OUT", NULL, "SDO" },
+	{ "FS FB_Port", "Switch", "SDO" },
+	{ "AIF OUT", NULL, "FS FB_Port" },
 };
 
 static int fs1816_probe_widgets(struct snd_soc_component *cmpnt,
@@ -1975,6 +1989,7 @@ static int fs1816_request_irq(struct fs1816_dev *fs1816)
 		return fs1816->irq_id;
 	}
 
+	dev_info(fs1816->dev, "IRQ ID:%d\n", fs1816->irq_id);
 	irq_flags = IRQF_TRIGGER_FALLING | IRQF_ONESHOT;
 	ret = devm_request_threaded_irq(fs1816->dev,
 			fs1816->irq_id, NULL, fs1816_irq_handler,
@@ -2200,6 +2215,7 @@ static void fs1816_pins_deinit(struct fs1816_dev *fs1816)
 
 static void fs1816_dev_deinit(struct fs1816_dev *fs1816)
 {
+	sysfs_remove_group(&fs1816->dev->kobj, &fs1816_i2c_attr_group);
 	fs1816_codec_deinit(fs1816);
 	fs1816_pins_deinit(fs1816);
 }
