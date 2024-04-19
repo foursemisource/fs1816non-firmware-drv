@@ -1,0 +1,70 @@
+name: kernel-v5.15
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  NUM_JOBS: 2
+  rpi_branch : rpi-5.15.y
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - name: bcm2711
+            arch: arm
+            defconfig: bcm2711_defconfig
+            kernel: kernel7l
+
+          - name: bcm2711_arm64
+            arch: arm64
+            defconfig: bcm2711_defconfig
+            kernel: kernel8
+    steps:
+    - name: install-toolchain
+      run: |
+        if [[ "${{matrix.arch}}" == "arm64" ]]; then
+          sudo apt-get update;
+          sudo apt-get install cppcheck gcc-aarch64-linux-gnu;
+        else
+          sudo apt-get update;
+          sudo apt-get install cppcheck gcc-arm-linux-gnueabihf;
+        fi
+      timeout-minutes: 15
+
+    - uses: actions/checkout@v4
+      with:
+        path: ${{github.workspace}}/fs1816
+
+    - name: clone-rpi-kernel
+      run: |
+        git clone --depth=1 https://github.com/raspberrypi/linux.git -b ${{env.rpi_branch}} ${{github.workspace}}/linux
+
+    - name: Build with rpi linux branch:${{env.rpi_branch}} - ${{matrix.name}}
+      run: |
+        export PRI_SRC=${{github.workspace}}/linux
+        export MOD_SRC=${{github.workspace}}/fs1816
+        export KBUILD_MODPOST_WARN=1
+        export ARCH=${{matrix.arch}}
+        if [[ "$ARCH" == "arm64" ]]; then
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          export DTS_SUBDIR=broadcom
+        else
+          export CROSS_COMPILE=arm-linux-gnueabihf-
+          export DTS_SUBDIR=broadcom
+        fi
+        cd ${MOD_SRC}
+        cppcheck -I. .
+        mv Makefile.example Makefile
+        sed -i '1i export CONFIG_SND_SOC_FS1816 := m' Makefile
+        cd ${PRI_SRC}
+        make O=${PRI_SRC}/out -j ${{env.NUM_JOBS}} ${{matrix.defconfig}}
+        make O=${PRI_SRC}/out -j ${{env.NUM_JOBS}} oldconfig prepare scripts modules_prepare
+        cd ${PRI_SRC}/out
+        make O=${PRI_SRC}/out -j ${{env.NUM_JOBS}} M=${MOD_SRC} modules
+
