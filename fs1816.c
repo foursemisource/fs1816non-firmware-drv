@@ -62,7 +62,7 @@ static const struct reg_sequence fs1816_init_list[] = {
 	{ FS1816_97H_AUTOCTRL,		0x0C04 },
 	{ FS1816_98H_LNMCTRL,		0x1F11 },
 	{ FS1816_A1H_DSPCTRL,		0x8015 },
-	{ FS1816_AEH_DACCTRL,		0x0200 },
+	{ FS1816_AEH_DACCTRL,		0x0210 },
 	{ FS1816_C0H_BSTCTRL,		0x1DCA },
 	{ FS1816_CFH_ADPBST,		0x6000 },
 	{ FS1816_0BH_ACCKEY,		0xCA91 },
@@ -2220,8 +2220,12 @@ static void fs1816_dev_deinit(struct fs1816_dev *fs1816)
 	fs1816_pins_deinit(fs1816);
 }
 
+#if KERNEL_VERSION_HIGHER(6, 3, 0)
+static int fs1816_i2c_probe(struct i2c_client *i2c)
+#else
 static int fs1816_i2c_probe(struct i2c_client *i2c,
 		const struct i2c_device_id *id)
+#endif
 {
 	struct fs1816_dev *fs1816;
 	int ret;

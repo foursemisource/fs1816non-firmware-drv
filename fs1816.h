@@ -20,7 +20,7 @@
 #include <sound/tlv.h>
 #include <sound/pcm_params.h>
 
-#define FS1816_I2C_VERSION "v1.1.1"
+#define FS1816_I2C_VERSION "v1.1.2"
 #define FS1816_DEVID       (0x34)
 #define FS1816_I2C_RETRY   (5)
 #define FS1816_I2C_MDELAY  (2)
@@ -33,7 +33,7 @@
 	(KERNEL_VERSION((a), (b), (c)) <= LINUX_VERSION_CODE)
 #define FS1816_DELAY_US(x) \
 	do { \
-		if ((x)) \
+		if ((x) > 0) \
 			usleep_range((x), (x)+10); \
 	} while (0)
 #define FS1816_DELAY_MS(x) FS1816_DELAY_US((x)*1000)
