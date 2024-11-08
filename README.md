@@ -1,6 +1,6 @@
 # FS1816 non-firmware driver
 
-![version](https://img.shields.io/badge/version-v1.1.2-blue)
+![version](https://img.shields.io/badge/version-v1.1.3-blue)
 
 [![kernel-v4.19](https://github.com/fs-nick-li/fs1816non-firmware-drv/actions/workflows/ci-v4.19.yml/badge.svg)](https://github.com/fs-nick-li/fs1816non-firmware-drv/actions/workflows/ci-v4.19.yml)
 [![kernel-v5.15](https://github.com/fs-nick-li/fs1816non-firmware-drv/actions/workflows/ci-v5.15.yml/badge.svg)](https://github.com/fs-nick-li/fs1816non-firmware-drv/actions/workflows/ci-v5.15.yml)

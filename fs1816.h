@@ -20,7 +20,7 @@
 #include <sound/tlv.h>
 #include <sound/pcm_params.h>
 
-#define FS1816_I2C_VERSION "v1.1.2"
+#define FS1816_I2C_VERSION "v1.1.3"
 #define FS1816_DEVID       (0x34)
 #define FS1816_I2C_RETRY   (5)
 #define FS1816_I2C_MDELAY  (2)

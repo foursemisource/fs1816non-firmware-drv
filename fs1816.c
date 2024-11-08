@@ -70,6 +70,8 @@ static const struct reg_sequence fs1816_init_list[] = {
 	{ FS1816_0BH_ACCKEY,		0x0000 },
 };
 
+static int fs1816_reg_read(struct fs1816_dev *fs1816,
+		uint8_t reg, uint16_t *pval);
 static int fs1816_irq_switch(struct fs1816_dev *fs1816, bool enable);
 
 int fs1816_i2c_reset(struct fs1816_dev *fs1816)
@@ -78,9 +80,15 @@ int fs1816_i2c_reset(struct fs1816_dev *fs1816)
 	uint8_t buf[3] = { 0x09, 0x00, 0x02 };
 	uint8_t addr;
 	int ret;
+	uint16_t devid;
 
 	if (fs1816 == NULL || fs1816->i2c == NULL)
 		return -EINVAL;
+
+	ret = fs1816_reg_read(fs1816, FS1816_03H_DEVID, &devid);
+	/* If we read devid ok, skip scanning addresses */
+	if (!ret && (devid >> 8) == FS1816_DEVID)
+		return 0;
 
 	for (addr = 0x34; addr <= 0x37; addr++) { /* scan 0x34 -> 0x37 */
 		mutex_lock(&fs1816->io_lock);
@@ -462,6 +470,68 @@ static int fs1816_startup(struct fs1816_dev *fs1816)
 	return ret;
 }
 
+static int fs1816_check_params(struct fs1816_dev *fs1816)
+{
+	uint16_t val;
+	int ret;
+
+	/* Rewrite I2S rate and format */
+	ret = fs1816_set_hw_params(fs1816);
+	if (ret)
+		dev_err(fs1816->dev, "Failed to rewrite hw params:%d\n", ret);
+
+	/* Check Volume: 06h bit15..0 */
+	ret = fs1816_reg_read(fs1816, FS1816_06H_AUDIOCTRL, &val);
+	if (!ret && (val >> FS1816_06H_VOL_SHIFT) != fs1816->rx_volume) {
+		dev_err(fs1816->dev, "Failed to check VOLUME\n");
+		val = fs1816->rx_volume << FS1816_06H_VOL_SHIFT;
+		ret = fs1816_reg_write(fs1816, FS1816_06H_AUDIOCTRL, val);
+	}
+
+	/* Check BSTEN: C0h bit3=1 */
+	ret = fs1816_reg_read_status(fs1816, FS1816_C0H_BSTCTRL, &val);
+	if (!ret && (val & (1 << 3)) == 0) { // bit3
+		dev_err(fs1816->dev, "Failed to check BSTEN\n");
+		val |= (1 << 3); // bit3
+		ret = fs1816_reg_write(fs1816, FS1816_C0H_BSTCTRL, val);
+	}
+
+	/* Check DAC UNMUTE: AEh bit8=0 */
+	ret = fs1816_reg_read(fs1816, FS1816_AEH_DACCTRL, &val);
+	if (!ret && (val & (1 << 8)) != 0) {
+		dev_err(fs1816->dev, "Failed to check DACMUTE\n");
+		val &= ~(1 << 8);
+		ret = fs1816_reg_write(fs1816, FS1816_AEH_DACCTRL, val);
+	}
+
+	return ret;
+}
+
+static int fs1816_check_status(struct fs1816_dev *fs1816)
+{
+	uint16_t val[15];
+	uint16_t *pval;
+	int ret;
+
+	pval = val;
+	FS1816_DELAY_MS(10); // wait system stable
+	ret  = fs1816_reg_read_status(fs1816, 0x00, pval++); // STATUS
+	ret |= fs1816_reg_read(fs1816, 0x04, pval++); // I2SCTRL
+	ret |= fs1816_reg_read_status(fs1816, 0x05, pval++); // ANASTAT
+	ret |= fs1816_reg_read(fs1816, 0x06, pval++); // VOLUME
+	ret |= fs1816_reg_read(fs1816, 0xAE, pval++); // DACCTRL
+	ret |= fs1816_reg_read_status(fs1816, 0xBD, pval++); // DIGSTAT
+	ret |= fs1816_reg_read_status(fs1816, FS1816_C0H_BSTCTRL, pval);
+	if (ret)
+		dev_err(fs1816->dev, "Failed to check status:%d\n", ret);
+
+	dev_info(fs1816->dev, "status: %04X %04X %04X %04X %04X %04X %04X\n",
+			val[0], val[1], val[2], val[3],
+			val[4], val[5], val[6]);
+
+	return ret;
+}
+
 static int fs1816_play(struct fs1816_dev *fs1816)
 {
 	uint16_t val;
@@ -473,7 +543,10 @@ static int fs1816_play(struct fs1816_dev *fs1816)
 		return 0;
 	}
 
-	ret = fs1816_reg_write(fs1816, FS1816_09H_SYSCTRL,
+	ret = fs1816_check_params(fs1816);
+	ret |= fs1816_reg_write(fs1816, FS1816_C4H_PLLCTRL4,
+			FS1816_C4H_PLLCTRL4_ON);
+	ret |= fs1816_reg_write(fs1816, FS1816_09H_SYSCTRL,
 			FS1816_09H_SYSCTRL_PLAY);
 	fs1816_reg_read_status(fs1816, FS1816_58H_INTSTAT,
 			&val); // clear
@@ -481,6 +554,7 @@ static int fs1816_play(struct fs1816_dev *fs1816)
 		fs1816->amp_on = true;
 
 	fs1816_irq_switch(fs1816, true);
+	fs1816_check_status(fs1816);
 
 	return ret;
 }
@@ -500,6 +574,8 @@ static int fs1816_stop(struct fs1816_dev *fs1816)
 			FS1816_BDH_DACRUN_MASK, 0);
 	fs1816_reg_read_status(fs1816, FS1816_58H_INTSTAT,
 			&intstat); // clear
+	ret |= fs1816_reg_write(fs1816, FS1816_C4H_PLLCTRL4,
+			FS1816_C4H_PLLCTRL4_OFF);
 	if (!ret)
 		fs1816->amp_on = false;
 
@@ -923,6 +999,12 @@ static int fs1816_dai_mute(struct snd_soc_dai *dai, int mute, int stream)
 		return -EINVAL;
 	}
 
+	if ((fs1816->stream_on ^ mute) != 0) {
+		dev_info(fs1816->dev, "dai: Skip playback %s\n",
+				mute ? "mute" : "unmute");
+		return 0;
+	}
+
 	if (mute) {
 		if (fs1816->restart_work_on)
 			cancel_delayed_work_sync(&fs1816->restart_work);
@@ -1158,8 +1240,6 @@ static const struct soc_enum fs1816_lnm_check_time_enum =
 static const struct soc_enum fs1816_lnm_check_thr_enum =
 		SOC_ENUM_SINGLE_EXT(ARRAY_SIZE(fs1816_lnm_check_thr_txt),
 		fs1816_lnm_check_thr_txt);
-
-static const DECLARE_TLV_DB_SCALE(fs1816_volume_tlv, -10230, 10, 0);
 
 static int fs1816_amp_switch_get(struct snd_kcontrol *kc,
 		struct snd_ctl_elem_value *uc)
@@ -1768,6 +1848,55 @@ static int fs1816_lnm_check_thr_put(struct snd_kcontrol *kc,
 	return ret;
 }
 
+static int fs1816_volume_get(struct snd_kcontrol *kc,
+		struct snd_ctl_elem_value *uc)
+{
+	struct fs1816_dev *fs1816;
+	uint16_t val;
+	int ret;
+
+	fs1816 = snd_soc_component_get_drvdata(snd_soc_kcontrol_component(kc));
+	if (fs1816 == NULL) {
+		pr_err("volume_get: fs1816 is null");
+		return -EINVAL;
+	}
+
+	mutex_lock(&fs1816_mutex);
+	ret = fs1816_reg_read(fs1816, FS1816_06H_AUDIOCTRL, &val);
+	val = (val & FS1816_06H_VOL_MASK) >> FS1816_06H_VOL_SHIFT;
+	uc->value.integer.value[0] = val;
+	mutex_unlock(&fs1816_mutex);
+
+	return ret;
+}
+
+static int fs1816_volume_put(struct snd_kcontrol *kc,
+		struct snd_ctl_elem_value *uc)
+{
+	struct fs1816_dev *fs1816;
+	unsigned int volume = uc->value.enumerated.item[0];
+	int ret;
+
+	fs1816 = snd_soc_component_get_drvdata(snd_soc_kcontrol_component(kc));
+	if (fs1816 == NULL) {
+		pr_err("volume_put: fs1816 is null");
+		return -EINVAL;
+	}
+
+	mutex_lock(&fs1816_mutex);
+	if (volume > 0x3FF) // max: bit15..6: 0x3FF
+		volume = 0x3FF;
+
+	ret = fs1816_reg_write(fs1816, FS1816_06H_AUDIOCTRL,
+			volume << FS1816_06H_VOL_SHIFT);
+	fs1816->rx_volume = volume;
+	mutex_unlock(&fs1816_mutex);
+	if (ret)
+		dev_err(fs1816->dev, "Failed to set volume:%d\n", ret);
+
+	return ret;
+}
+
 static const struct snd_kcontrol_new fs1816_codec_controls[] = {
 	SOC_ENUM_EXT("fs1816_amp_switch", fs1816_switch_state_enum,
 			fs1816_amp_switch_get, fs1816_amp_switch_put),
@@ -1793,8 +1922,8 @@ static const struct snd_kcontrol_new fs1816_codec_controls[] = {
 			fs1816_lnm_check_time_get, fs1816_lnm_check_time_put),
 	SOC_ENUM_EXT("fs1816_lnm_check_thr", fs1816_lnm_check_thr_enum,
 			fs1816_lnm_check_thr_get, fs1816_lnm_check_thr_put),
-	SOC_SINGLE_TLV("fs1816_volume", FS1816_06H_AUDIOCTRL, 6, 0x3FF, 0,
-			fs1816_volume_tlv),
+	SOC_SINGLE_EXT("fs1816_volume", SND_SOC_NOPM, 0, 0x3FF, 0,
+			fs1816_volume_get, fs1816_volume_put),
 	SOC_SINGLE("fs1816_i2s_out", FS1816_04H_I2SCTRL, 11, 1, 0),
 	SOC_SINGLE("fs1816_rtz_switch", FS1816_27H_ANACFG, 11, 1, 0),
 	SOC_SINGLE("fs1816_ng_switch", FS1816_96H_NGCTRL, 15, 1, 0),
@@ -2175,11 +2304,11 @@ static int fs1816_dev_init(struct fs1816_dev *fs1816)
 {
 	int ret;
 
-	fs1816_i2c_reset(fs1816);
 	ret = fs1816_regmap_init(fs1816);
 	if (ret)
 		return ret;
 
+	fs1816_i2c_reset(fs1816);
 	ret = fs1816_detect_device(fs1816);
 	if (ret)
 		return ret;
