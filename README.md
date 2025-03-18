@@ -8,13 +8,12 @@
 
 ## About FS1816
 
-- The FS1816N is a digital input, class-D audio amplifier integrated with Noise Gate, ECO Power and SPC function.
+- The FS1816N is a digital input, class-D audio amplifier integrated with Noise Gate function.
+- The FS1816N is for receiver application.
 - It supports both I²S and TDM digital audio interface.
-- The FS1816N is integrated with 6.5V adaptive boost converter, which can deliver 2.4W RMS output power into an 8Ω speaker.
 - The amplifier output noise floor is as low as 7μV attributed to the new architecture.
 - Noise gate function is also supported to achieve better mute performance.
-- The device has ECO Power function to achieve low current consumption during playback.
-- FS1816N is easy to implement and can be easily configured by I²C communication.
+- FS1816N is easy to implement and can be easily configured by I²C communication
 
 ## About FourSemi
 

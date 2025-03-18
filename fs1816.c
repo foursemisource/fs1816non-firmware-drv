@@ -710,7 +710,7 @@ static int fs1816_set_ng_window(struct fs1816_dev *fs1816, int delay)
 
 	mask = FS1816_96H_NGDLY_MASK;
 	val = delay << FS1816_96H_NGDLY_SHIFT;
-	ret = fs1816_reg_update_bits(fs1816, FS1816_C0H_BSTCTRL, mask, val);
+	ret = fs1816_reg_update_bits(fs1816, FS1816_96H_NGCTRL, mask, val);
 
 	return ret;
 }
@@ -725,7 +725,7 @@ static int fs1816_set_ng_threshold(struct fs1816_dev *fs1816, int thrd)
 
 	mask = FS1816_96H_NGTHD_MASK;
 	val = thrd << FS1816_96H_NGTHD_SHIFT;
-	ret = fs1816_reg_update_bits(fs1816, FS1816_C0H_BSTCTRL, mask, val);
+	ret = fs1816_reg_update_bits(fs1816, FS1816_96H_NGCTRL, mask, val);
 
 	return ret;
 }
@@ -999,24 +999,26 @@ static int fs1816_dai_mute(struct snd_soc_dai *dai, int mute, int stream)
 		return -EINVAL;
 	}
 
+	mutex_lock(&fs1816_mutex);
 	if ((fs1816->stream_on ^ mute) != 0) {
 		dev_info(fs1816->dev, "dai: Skip playback %s\n",
 				mute ? "mute" : "unmute");
+		mutex_unlock(&fs1816_mutex);
 		return 0;
 	}
+	fs1816->stream_on = !mute;
+	mutex_unlock(&fs1816_mutex);
 
 	if (mute) {
 		if (fs1816->restart_work_on)
 			cancel_delayed_work_sync(&fs1816->restart_work);
 		mutex_lock(&fs1816_mutex);
-		fs1816->stream_on = false;
 		if (fs1816->dac_event_up)
 			ret = fs1816_stop(fs1816);
 		dev_info(fs1816->dev, "dai: playback mute\n");
 		mutex_unlock(&fs1816_mutex);
 	} else {
 		mutex_lock(&fs1816_mutex);
-		fs1816->stream_on = true;
 		if (fs1816->dac_event_up)
 			ret = fs1816_play(fs1816);
 		dev_info(fs1816->dev, "dai: playback unmute\n");
