@@ -74,7 +74,7 @@ static int fs1816_reg_read(struct fs1816_dev *fs1816,
 		uint8_t reg, uint16_t *pval);
 static int fs1816_irq_switch(struct fs1816_dev *fs1816, bool enable);
 
-int fs1816_i2c_reset(struct fs1816_dev *fs1816)
+static int fs1816_i2c_reset(struct fs1816_dev *fs1816)
 {
 	struct i2c_msg msgs[1];
 	uint8_t buf[3] = { 0x09, 0x00, 0x02 };

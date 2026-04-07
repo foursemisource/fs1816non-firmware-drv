@@ -1,4 +1,4 @@
-name: kernel-v6.6
+name: kernel-v6.12
 
 on:
   push:
@@ -8,7 +8,7 @@ on:
 
 env:
   NUM_JOBS: 2
-  rpi_branch : rpi-6.6.y
+  rpi_branch : rpi-6.12.y
 
 jobs:
   build:

@@ -35,7 +35,7 @@ jobs:
           sudo apt-get update;
           sudo apt-get install cppcheck gcc-arm-linux-gnueabihf;
         fi
-      timeout-minutes: 15
+      timeout-minutes: 30
 
     - uses: actions/checkout@v4
       with:
